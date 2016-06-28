@@ -6,6 +6,7 @@ import (
 
 	executorpkg "github.com/docker/docker/daemon/cluster/executor"
 	"github.com/docker/engine-api/types"
+	"github.com/docker/engine-api/types/events"
 	"github.com/docker/swarmkit/agent/exec"
 	"github.com/docker/swarmkit/api"
 	"github.com/docker/swarmkit/log"
@@ -153,10 +154,40 @@ func (r *controller) Wait(pctx context.Context) error {
 	ctx, cancel := context.WithCancel(pctx)
 	defer cancel()
 
-	err := r.adapter.wait(ctx)
-	if ctx.Err() != nil {
-		return ctx.Err()
+	// error chan for wait
+	waitErrCh := make(chan error)
+	// error chan for health check
+	healthErrCh := make(chan error)
+
+	runner := func(f func(ctx context.Context) error, errCh chan<- error) {
+		err := f(ctx)
+		select {
+		case <-r.closed:
+		case <-ctx.Done():
+		case errCh <- err:
+		}
 	}
+
+	// run wait and checkHealth
+	go runner(r.adapter.wait, waitErrCh)
+	go runner(r.checkHealth, healthErrCh)
+
+	// listen on the error chan
+	var err error
+	select {
+	case <-r.closed:
+		return r.err
+	case <-ctx.Done():
+		return ctx.Err()
+	case err = <-waitErrCh:
+	case err = <-healthErrCh:
+		// unhealthy container is detected, shutdown it
+		if shutdownErr := r.Shutdown(ctx); shutdownErr != nil {
+			err = errors.Wrap(shutdownErr, "unhealthy container shutdown failed")
+		}
+
+	}
+
 	if err != nil {
 		ee := &exitError{}
 		if err.Error() != "" {
@@ -250,6 +281,21 @@ func (r *controller) Close() error {
 	return nil
 }
 
+func (r *controller) matchevent(event events.Message) bool {
+	if event.Type != events.ContainerEventType {
+		return false
+	}
+
+	// TODO(stevvooe): Filter based on ID matching, in addition to name.
+
+	// Make sure the events are for this container.
+	if event.Actor.Attributes["name"] != r.adapter.container.name() {
+		return false
+	}
+
+	return true
+}
+
 func (r *controller) checkClosed() error {
 	select {
 	case <-r.closed:
@@ -288,4 +334,27 @@ func (e *exitError) ExitCode() int {
 
 func (e *exitError) Cause() error {
 	return e.cause
+}
+
+// checkHealth blocks until unhealthy container is detected or ctx exits
+func (r *controller) checkHealth(ctx context.Context) error {
+	eventq := r.adapter.events(ctx)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-r.closed:
+			return nil
+		case event := <-eventq:
+			if !r.matchevent(event) {
+				continue
+			}
+
+			switch event.Action {
+			case "health_status: unhealthy":
+				return ErrContainerUnhealthy
+			}
+		}
+	}
 }

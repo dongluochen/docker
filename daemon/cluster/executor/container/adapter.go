@@ -7,10 +7,12 @@ import (
 	"io"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/Sirupsen/logrus"
 	executorpkg "github.com/docker/docker/daemon/cluster/executor"
 	"github.com/docker/engine-api/types"
+	"github.com/docker/engine-api/types/events"
 	"github.com/docker/libnetwork"
 	"github.com/docker/swarmkit/api"
 	"github.com/docker/swarmkit/log"
@@ -162,9 +164,40 @@ func (c *containerAdapter) inspect(ctx context.Context) (types.ContainerJSON, er
 
 // events issues a call to the events API and returns a channel with all
 // events. The stream of events can be shutdown by cancelling the context.
-//
-// A chan struct{} is returned that will be closed if the event processing
-// fails and needs to be restarted.
+func (c *containerAdapter) events(ctx context.Context) <-chan events.Message {
+	log.G(ctx).Debugf("waiting on events")
+	buffer, l := c.backend.SubscribeToEvents(time.Time{}, time.Time{}, c.container.eventFilter())
+	eventsq := make(chan events.Message, len(buffer))
+
+	for _, event := range buffer {
+		eventsq <- event
+	}
+
+	go func() {
+		defer c.backend.UnsubscribeFromEvents(l)
+
+		for {
+			select {
+			case ev := <-l:
+				jev, ok := ev.(events.Message)
+				if !ok {
+					log.G(ctx).Warnf("unexpected event message: %q", ev)
+					continue
+				}
+				select {
+				case eventsq <- jev:
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return eventsq
+}
+
 func (c *containerAdapter) wait(ctx context.Context) error {
 	return c.backend.ContainerWaitWithContext(ctx, c.container.name())
 }
