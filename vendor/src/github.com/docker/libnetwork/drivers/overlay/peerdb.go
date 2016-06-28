@@ -5,7 +5,11 @@ import (
 	"net"
 	"sync"
 	"syscall"
+
+	log "github.com/Sirupsen/logrus"
 )
+
+const ovPeerTable = "overlay_peer_table"
 
 type peerKey struct {
 	peerIP  net.IP
@@ -26,7 +30,7 @@ type peerMap struct {
 }
 
 type peerNetworkMap struct {
-	mp map[string]peerMap
+	mp map[string]*peerMap
 	sync.Mutex
 }
 
@@ -86,7 +90,7 @@ func (d *driver) peerDbNetworkWalk(nid string, f func(*peerKey, *peerEntry) bool
 	for pKeyStr, pEntry := range pMap.mp {
 		var pKey peerKey
 		if _, err := fmt.Sscan(pKeyStr, &pKey); err != nil {
-			fmt.Printf("peer key scan failed: %v", err)
+			log.Warnf("Peer key scan on network %s failed: %v", nid, err)
 		}
 
 		if f(&pKey, &pEntry) {
@@ -138,7 +142,7 @@ func (d *driver) peerDbAdd(nid, eid string, peerIP net.IP, peerIPMask net.IPMask
 	d.peerDb.Lock()
 	pMap, ok := d.peerDb.mp[nid]
 	if !ok {
-		d.peerDb.mp[nid] = peerMap{
+		d.peerDb.mp[nid] = &peerMap{
 			mp: make(map[string]peerEntry),
 		}
 
@@ -267,8 +271,12 @@ func (d *driver) peerAdd(nid, eid string, peerIP net.IP, peerIPMask net.IPMask,
 		return fmt.Errorf("couldn't get vxlan id for %q: %v", s.subnetIP.String(), err)
 	}
 
-	if err := n.joinSubnetSandbox(s); err != nil {
+	if err := n.joinSubnetSandbox(s, false); err != nil {
 		return fmt.Errorf("subnet sandbox join failed for %q: %v", s.subnetIP.String(), err)
+	}
+
+	if err := d.checkEncryption(nid, vtep, n.vxlanID(s), false, true); err != nil {
+		log.Warn(err)
 	}
 
 	// Add neighbor entry for the peer IP
@@ -314,6 +322,10 @@ func (d *driver) peerDelete(nid, eid string, peerIP net.IP, peerIPMask net.IPMas
 	// Delete neighbor entry for the peer IP
 	if err := sbox.DeleteNeighbor(peerIP, peerMac); err != nil {
 		return fmt.Errorf("could not delete neigbor entry into the sandbox: %v", err)
+	}
+
+	if err := d.checkEncryption(nid, vtep, 0, false, false); err != nil {
+		log.Warn(err)
 	}
 
 	return nil

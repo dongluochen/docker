@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/docker/docker/dockerversion"
 	"github.com/docker/docker/pkg/homedir"
 	"github.com/docker/docker/pkg/integration/checker"
-	"github.com/docker/docker/version"
 	"github.com/go-check/check"
 )
 
@@ -54,7 +54,7 @@ func (s *DockerSuite) TestConfigHttpHeader(c *check.C) {
 
 	c.Assert(headers["User-Agent"], checker.NotNil, check.Commentf("Missing User-Agent"))
 
-	c.Assert(headers["User-Agent"][0], checker.Equals, "Docker-Client/"+version.VERSION+" ("+runtime.GOOS+")", check.Commentf("Badly formatted User-Agent,out:%v", out))
+	c.Assert(headers["User-Agent"][0], checker.Equals, "Docker-Client/"+dockerversion.Version+" ("+runtime.GOOS+")", check.Commentf("Badly formatted User-Agent,out:%v", out))
 
 	c.Assert(headers["Myheader"], checker.NotNil)
 	c.Assert(headers["Myheader"][0], checker.Equals, "MyValue", check.Commentf("Missing/bad header,out:%v", out))
@@ -71,7 +71,7 @@ func (s *DockerSuite) TestConfigDir(c *check.C) {
 
 	// Test with env var too
 	cmd := exec.Command(dockerBinary, "ps")
-	cmd.Env = append(os.Environ(), "DOCKER_CONFIG="+cDir)
+	cmd.Env = appendBaseEnv(true, "DOCKER_CONFIG="+cDir)
 	out, _, err := runCommandWithOutput(cmd)
 
 	c.Assert(err, checker.IsNil, check.Commentf("ps2 didn't work,out:%v", out))
@@ -95,7 +95,10 @@ func (s *DockerSuite) TestConfigDir(c *check.C) {
 	err = ioutil.WriteFile(tmpCfg, []byte(data), 0600)
 	c.Assert(err, checker.IsNil, check.Commentf("Err creating file"))
 
+	env := appendBaseEnv(false)
+
 	cmd = exec.Command(dockerBinary, "--config", cDir, "-H="+server.URL[7:], "ps")
+	cmd.Env = env
 	out, _, err = runCommandWithOutput(cmd)
 
 	c.Assert(err, checker.NotNil, check.Commentf("out:%v", out))
@@ -105,7 +108,7 @@ func (s *DockerSuite) TestConfigDir(c *check.C) {
 	// Reset headers and try again using env var this time
 	headers = map[string][]string{}
 	cmd = exec.Command(dockerBinary, "-H="+server.URL[7:], "ps")
-	cmd.Env = append(os.Environ(), "DOCKER_CONFIG="+cDir)
+	cmd.Env = append(env, "DOCKER_CONFIG="+cDir)
 	out, _, err = runCommandWithOutput(cmd)
 
 	c.Assert(err, checker.NotNil, check.Commentf("%v", out))
@@ -115,7 +118,7 @@ func (s *DockerSuite) TestConfigDir(c *check.C) {
 	// Reset headers and make sure flag overrides the env var
 	headers = map[string][]string{}
 	cmd = exec.Command(dockerBinary, "--config", cDir, "-H="+server.URL[7:], "ps")
-	cmd.Env = append(os.Environ(), "DOCKER_CONFIG=MissingDir")
+	cmd.Env = append(env, "DOCKER_CONFIG=MissingDir")
 	out, _, err = runCommandWithOutput(cmd)
 
 	c.Assert(err, checker.NotNil, check.Commentf("out:%v", out))
@@ -127,10 +130,9 @@ func (s *DockerSuite) TestConfigDir(c *check.C) {
 	// ignore - we don't want to default back to the env var.
 	headers = map[string][]string{}
 	cmd = exec.Command(dockerBinary, "--config", "MissingDir", "-H="+server.URL[7:], "ps")
-	cmd.Env = append(os.Environ(), "DOCKER_CONFIG="+cDir)
+	cmd.Env = append(env, "DOCKER_CONFIG="+cDir)
 	out, _, err = runCommandWithOutput(cmd)
 
 	c.Assert(err, checker.NotNil, check.Commentf("out:%v", out))
 	c.Assert(headers["Myheader"], checker.IsNil, check.Commentf("ps6 - Headers shouldn't be the expected value,out:%v", out))
-
 }

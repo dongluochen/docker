@@ -6,6 +6,7 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/docker/docker/pkg/plugins"
+	"github.com/docker/libnetwork/discoverapi"
 	"github.com/docker/libnetwork/ipamapi"
 	"github.com/docker/libnetwork/ipams/remote/api"
 	"github.com/docker/libnetwork/types"
@@ -30,8 +31,17 @@ func newAllocator(name string, client *plugins.Client) ipamapi.Ipam {
 // Init registers a remote ipam when its plugin is activated
 func Init(cb ipamapi.Callback, l, g interface{}) error {
 	plugins.Handle(ipamapi.PluginEndpointType, func(name string, client *plugins.Client) {
-		if err := cb.RegisterIpamDriver(name, newAllocator(name, client)); err != nil {
-			log.Errorf("error registering remote ipam %s due to %v", name, err)
+		a := newAllocator(name, client)
+		if cps, err := a.(*allocator).getCapabilities(); err == nil {
+			if err := cb.RegisterIpamDriverWithCapabilities(name, a, cps); err != nil {
+				log.Errorf("error registering remote ipam driver %s due to %v", name, err)
+			}
+		} else {
+			log.Infof("remote ipam driver %s does not support capabilities", name)
+			log.Debug(err)
+			if err := cb.RegisterIpamDriver(name, a); err != nil {
+				log.Errorf("error registering remote ipam driver %s due to %v", name, err)
+			}
 		}
 	})
 	return nil
@@ -47,6 +57,14 @@ func (a *allocator) call(methodName string, arg interface{}, retVal PluginRespon
 		return fmt.Errorf("remote: %s", retVal.GetError())
 	}
 	return nil
+}
+
+func (a *allocator) getCapabilities() (*ipamapi.Capability, error) {
+	var res api.GetCapabilityResponse
+	if err := a.call("GetCapabilities", nil, &res); err != nil {
+		return nil, err
+	}
+	return res.ToCapability(), nil
 }
 
 // GetDefaultAddressSpaces returns the local and global default address spaces
@@ -106,4 +124,14 @@ func (a *allocator) ReleaseAddress(poolID string, address net.IP) error {
 	req := &api.ReleaseAddressRequest{PoolID: poolID, Address: relAddress}
 	res := &api.ReleaseAddressResponse{}
 	return a.call("ReleaseAddress", req, res)
+}
+
+// DiscoverNew is a notification for a new discovery event, such as a new global datastore
+func (a *allocator) DiscoverNew(dType discoverapi.DiscoveryType, data interface{}) error {
+	return nil
+}
+
+// DiscoverDelete is a notification for a discovery delete event, such as a node leaving a cluster
+func (a *allocator) DiscoverDelete(dType discoverapi.DiscoveryType, data interface{}) error {
+	return nil
 }

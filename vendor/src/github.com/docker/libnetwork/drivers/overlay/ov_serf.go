@@ -12,8 +12,8 @@ import (
 
 type ovNotify struct {
 	action string
-	eid    string
-	nid    string
+	ep     *endpoint
+	nw     *network
 }
 
 type logWriter struct{}
@@ -48,6 +48,7 @@ func (d *driver) serfInit() error {
 	config.UserQuiescentPeriod = 50 * time.Millisecond
 
 	config.LogOutput = &logWriter{}
+	config.MemberlistConfig.LogOutput = config.LogOutput
 
 	s, err := serf.Create(config)
 	if err != nil {
@@ -80,13 +81,12 @@ func (d *driver) serfJoin(neighIP string) error {
 }
 
 func (d *driver) notifyEvent(event ovNotify) {
-	n := d.network(event.nid)
-	ep := n.endpoint(event.eid)
+	ep := event.ep
 
 	ePayload := fmt.Sprintf("%s %s %s %s", event.action, ep.addr.IP.String(),
 		net.IP(ep.addr.Mask).String(), ep.mac.String())
 	eName := fmt.Sprintf("jl %s %s %s", d.serfInstance.LocalMember().Addr.String(),
-		event.nid, event.eid)
+		event.nw.id, ep.id)
 
 	if err := d.serfInstance.UserEvent(eName, []byte(ePayload), true); err != nil {
 		logrus.Errorf("Sending user event failed: %v\n", err)
@@ -150,6 +150,10 @@ func (d *driver) processQuery(q *serf.Query) {
 }
 
 func (d *driver) resolvePeer(nid string, peerIP net.IP) (net.HardwareAddr, net.IPMask, net.IP, error) {
+	if d.serfInstance == nil {
+		return nil, nil, nil, fmt.Errorf("could not resolve peer: serf instance not initialized")
+	}
+
 	qPayload := fmt.Sprintf("%s %s", string(nid), peerIP.String())
 	resp, err := d.serfInstance.Query("peerlookup", []byte(qPayload), nil)
 	if err != nil {

@@ -1,24 +1,26 @@
 <!-- [metadata]>
 +++
-title = "Using the command line"
+title = "Command line reference"
 description = "Docker's CLI command description and usage"
 keywords = ["Docker, Docker documentation, CLI,  command line"]
 [menu.main]
 identifier= "smn_cli"
-parent = "mn_reference"
+parent = "engine_ref"
+weight=-70
 +++
-<!-- [end-metadata]-->
+<![end-metadata]-->
+
 
 
 # The Docker commands
 
-This section contains reference information on using Docker's command line client. Each command has a reference page along with samples. If you are unfamiliar with the command line, you should start by reading about how to ["Use the Docker command line"](cli.md).  
+This section contains reference information on using Docker's command line client. Each command has a reference page along with samples. If you are unfamiliar with the command line, you should start by reading about how to [Use the Docker command line](cli.md).  
 
-You start the Docker daemon with the command line. How you start the daemon affects your Docker containers. For that reason you should also make sure to read the [`daemon`](daemon.md) reference page.
+You start the Docker daemon with the command line. How you start the daemon affects your Docker containers. For that reason you should also make sure to read the [`dockerd`](dockerd.md) reference page.
 
 ### Docker management commands
 
-* [daemon](daemon.md)
+* [dockerd](dockerd.md)
 * [info](info.md)
 * [inspect](inspect.md)
 * [version](version.md)
@@ -58,6 +60,7 @@ You start the Docker daemon with the command line. How you start the daemon affe
 * [stop](stop.md)
 * [top](top.md)
 * [unpause](unpause.md)
+* [update](update.md)
 * [wait](wait.md)
 
 ### Hub and registry commands
@@ -83,3 +86,31 @@ You start the Docker daemon with the command line. How you start the daemon affe
 * [volume_inspect](volume_inspect.md)
 * [volume_ls](volume_ls.md)
 * [volume_rm](volume_rm.md)
+
+### Swarm node commands
+
+* [node_accept](node_accept.md)
+* [node_promote](node_promote.md)
+* [node_demote](node_demote.md)
+* [node_inspect](node_inspect.md)
+* [node_update](node_update.md)
+* [node_tasks](node_tasks.md)
+* [node_ls](node_ls.md)
+* [node_rm](node_rm.md)
+
+### Swarm swarm commands
+
+* [swarm init](swarm_init.md)
+* [swarm join](swarm_join.md)
+* [swarm leave](swarm_leave.md)
+* [swarm update](swarm_update.md)
+
+### Swarm service commands
+
+* [service create](service_create.md)
+* [service inspect](service_inspect.md)
+* [service ls](service_ls.md)
+* [service rm](service_rm.md)
+* [service scale](service_scale.md)
+* [service tasks](service_tasks.md)
+* [service update](service_update.md)

@@ -6,15 +6,19 @@ docker-network-create - create a new network
 
 # SYNOPSIS
 **docker network create**
-
-**--aux-address=map[]**    
-**-d** | **--driver=DRIVER**       
-**--gateway=[]**             
-**--help=false**             
-**--ip-range=[]**            
-**--ipam-driver=default**    
-**-o** | **--opt=map[]**           
-**--subnet=[]**              
+[**--aux-address**=*map[]*]
+[**-d**|**--driver**=*DRIVER*]
+[**--gateway**=*[]*]
+[**--help**]
+[**--internal**]
+[**--ip-range**=*[]*]
+[**--ipam-driver**=*default*]
+[**--ipam-opt**=*map[]*]
+[**--ipv6**]
+[**--label**[=*[]*]]
+[**-o**|**--opt**=*map[]*]
+[**--subnet**=*[]*]
+NETWORK-NAME
 
 # DESCRIPTION
 
@@ -42,7 +46,7 @@ conditions are:
 * A cluster of hosts with connectivity to the key-value store.
 * A properly configured Engine `daemon` on each host in the cluster.
 
-The `docker daemon` options that support the `overlay` network are:
+The `dockerd` options that support the `overlay` network are:
 
 * `--cluster-store`
 * `--cluster-store-opt`
@@ -50,7 +54,7 @@ The `docker daemon` options that support the `overlay` network are:
 
 To read more about these options and how to configure them, see ["*Get started
 with multi-host
-network*"](https://www.docker.com/engine/userguide/networking/get-started-overlay.md).
+network*"](https://docs.docker.com/engine/userguide/networking/get-started-overlay/).
 
 It is also a good idea, though not required, that you install Docker Swarm on to
 manage the cluster that makes up your network. Swarm provides sophisticated
@@ -93,16 +97,23 @@ disconnect` command.
 When you create a network, Engine creates a non-overlapping subnetwork for the
 network by default. This subnetwork is not a subdivision of an existing network.
 It is purely for ip-addressing purposes. You can override this default and
-specify subnetwork values directly using the the `--subnet` option. On a
+specify subnetwork values directly using the `--subnet` option. On a
 `bridge` network you can only create a single subnet:
 
 ```bash
-docker network create -d --subnet=192.168.0.0/16
+$ docker network create -d bridge --subnet=192.168.0.0/16 br0
 ```
-Additionally, you also specify the `--gateway` `--ip-range` and `--aux-address` options.
+
+Additionally, you also specify the `--gateway` `--ip-range` and `--aux-address`
+options.
 
 ```bash
-network create --driver=bridge --subnet=172.28.0.0/16 --ip-range=172.28.5.0/24 --gateway=172.28.5.254 br0
+$ docker network create \
+  --driver=bridge \
+  --subnet=172.28.0.0/16 \
+  --ip-range=172.28.5.0/24 \
+  --gateway=172.28.5.254 \
+  br0
 ```
 
 If you omit the `--gateway` flag the Engine selects one for you from inside a
@@ -110,39 +121,62 @@ preferred pool. For `overlay` networks and for network driver plugins that
 support it you can create multiple subnetworks.
 
 ```bash
-docker network create -d overlay
-  --subnet=192.168.0.0/16 --subnet=192.170.0.0/16
-  --gateway=192.168.0.100 --gateway=192.170.0.100
-  --ip-range=192.168.1.0/24
-  --aux-address a=192.168.1.5 --aux-address b=192.168.1.6
-  --aux-address a=192.170.1.5 --aux-address b=192.170.1.6
-  my-multihost-newtork
+$ docker network create -d overlay \
+  --subnet=192.168.0.0/16 \
+  --subnet=192.170.0.0/16 \
+  --gateway=192.168.0.100 \ 
+  --gateway=192.170.0.100 \
+  --ip-range=192.168.1.0/24 \
+  --aux-address a=192.168.1.5 --aux-address b=192.168.1.6 \
+  --aux-address a=192.170.1.5 --aux-address b=192.170.1.6 \
+  my-multihost-network
 ```
-Be sure that your subnetworks do not overlap. If they do, the network create fails and Engine returns an error.
+
+Be sure that your subnetworks do not overlap. If they do, the network create
+fails and Engine returns an error.
+
+### Network internal mode
+
+By default, when you connect a container to an `overlay` network, Docker also
+connects a bridge network to it to provide external connectivity. If you want
+to create an externally isolated `overlay` network, you can specify the
+`--internal` option.
 
 # OPTIONS
-**--aux-address=map[]**     
+**--aux-address**=map[]
   Auxiliary ipv4 or ipv6 addresses used by network driver
 
-**-d** | **--driver=DRIVER**       
+**-d**, **--driver**=*DRIVER*
   Driver to manage the Network bridge or overlay. The default is bridge.
 
-**--gateway=[] **            
+**--gateway**=[]
   ipv4 or ipv6 Gateway for the master subnet
 
-**--help=false **            
+**--help**
   Print usage
 
-**--ip-range=[] **           
+**--internal**
+  Restricts external access to the network
+
+**--ip-range**=[]
   Allocate container ip from a sub-range
 
-**--ipam-driver=default **   
+**--ipam-driver**=*default*
   IP Address Management Driver
 
-**-o | --opt=map[]**           
-  Set custom network plugin options
+**--ipam-opt**=map[]
+  Set custom IPAM driver options
 
-**--subnet=[]**              
+**--ipv6**
+  Enable IPv6 networking
+
+**--label**=*label*
+   Set metadata for a network
+
+**-o**, **--opt**=map[]
+  Set custom driver options
+
+**--subnet**=[]
   Subnet in CIDR format that represents a network segment
 
 # HISTORY

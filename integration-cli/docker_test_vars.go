@@ -10,8 +10,13 @@ import (
 )
 
 var (
-	// the docker binary to use
+	// the docker client binary to use
 	dockerBinary = "docker"
+	// the docker daemon binary to use
+	dockerdBinary = "dockerd"
+
+	// path to containerd's ctr binary
+	ctrBinary = "docker-containerd-ctr"
 
 	// the private registry image to use for tests involving the registry
 	registryImageName = "registry"
@@ -19,8 +24,9 @@ var (
 	// the private registry to use for tests
 	privateRegistryURL = "127.0.0.1:5000"
 
-	runtimePath    = "/var/run/docker"
-	execDriverPath = runtimePath + "/execdriver/native"
+	// TODO Windows CI. These are incorrect and need fixing into
+	// platform specific pieces.
+	runtimePath = "/var/run/docker"
 
 	workingDirectory string
 
@@ -30,9 +36,15 @@ var (
 
 	// daemonPlatform is held globally so that tests can make intelligent
 	// decisions on how to configure themselves according to the platform
-	// of the daemon. This is initialised in docker_utils by sending
+	// of the daemon. This is initialized in docker_utils by sending
 	// a version call to the daemon and examining the response header.
 	daemonPlatform string
+
+	// windowsDaemonKV is used on Windows to distinguish between different
+	// versions. This is necessary to enable certain tests based on whether
+	// the platform supports it. For example, Windows Server 2016 TP3 did
+	// not support volumes, but TP4 did.
+	windowsDaemonKV int
 
 	// daemonDefaultImage is the name of the default image to use when running
 	// tests. This is platform dependent.
@@ -44,6 +56,11 @@ var (
 	dockerBasePath       string
 	volumesConfigPath    string
 	containerStoragePath string
+
+	// daemonStorageDriver is held globally so that tests can know the storage
+	// driver of the daemon. This is initialized in docker_utils by sending
+	// a version call to the daemon and examining the response header.
+	daemonStorageDriver string
 )
 
 const (
@@ -78,7 +95,7 @@ func init() {
 	// to evaluate whether the daemon is local or remote is not possible through
 	// a build tag.
 	//
-	// For example Windows CI under Jenkins test the 64-bit
+	// For example Windows to Linux CI under Jenkins tests the 64-bit
 	// Windows binary build with the daemon build tag, but calls a remote
 	// Linux daemon.
 	//
@@ -93,6 +110,8 @@ func init() {
 		isLocalDaemon = true
 	}
 
+	// TODO Windows CI. This are incorrect and need fixing into
+	// platform specific pieces.
 	// This is only used for a tests with local daemon true (Linux-only today)
 	// default is "/var/lib/docker", but we'll try and ask the
 	// /info endpoint for the specific root dir

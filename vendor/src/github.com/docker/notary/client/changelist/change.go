@@ -1,7 +1,7 @@
 package changelist
 
 import (
-	"github.com/endophage/gotuf/data"
+	"github.com/docker/notary/tuf/data"
 )
 
 // Scopes for TufChanges are simply the TUF roles.
@@ -17,7 +17,7 @@ const (
 // Types for TufChanges are namespaced by the Role they
 // are relevant for. The Root and Targets roles are the
 // only ones for which user action can cause a change, as
-// all changes in Snapshot and Timestamp are programatically
+// all changes in Snapshot and Timestamp are programmatically
 // generated base on Root and Targets changes.
 const (
 	TypeRootRole          = "role"
@@ -38,8 +38,8 @@ type TufChange struct {
 // TufRootData represents a modification of the keys associated
 // with a role that appears in the root.json
 type TufRootData struct {
-	Keys     []data.TUFKey `json:"keys"`
-	RoleName string        `json:"role"`
+	Keys     data.KeyList `json:"keys"`
+	RoleName string       `json:"role"`
 }
 
 // NewTufChange initializes a tufChange object
@@ -76,4 +76,26 @@ func (c TufChange) Path() string {
 // Content returns c.Data
 func (c TufChange) Content() []byte {
 	return c.Data
+}
+
+// TufDelegation represents a modification to a target delegation
+// this includes creating a delegations. This format is used to avoid
+// unexpected race conditions between humans modifying the same delegation
+type TufDelegation struct {
+	NewName       string       `json:"new_name,omitempty"`
+	NewThreshold  int          `json:"threshold, omitempty"`
+	AddKeys       data.KeyList `json:"add_keys, omitempty"`
+	RemoveKeys    []string     `json:"remove_keys,omitempty"`
+	AddPaths      []string     `json:"add_paths,omitempty"`
+	RemovePaths   []string     `json:"remove_paths,omitempty"`
+	ClearAllPaths bool         `json:"clear_paths,omitempty"`
+}
+
+// ToNewRole creates a fresh role object from the TufDelegation data
+func (td TufDelegation) ToNewRole(scope string) (*data.Role, error) {
+	name := scope
+	if td.NewName != "" {
+		name = td.NewName
+	}
+	return data.NewRole(name, td.NewThreshold, td.AddKeys.IDs(), td.AddPaths)
 }

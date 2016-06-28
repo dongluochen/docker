@@ -3,16 +3,16 @@ package main
 import (
 	"encoding/json"
 	"net/http"
-	"path"
+	"path/filepath"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/pkg/integration/checker"
+	"github.com/docker/engine-api/types"
 	"github.com/go-check/check"
 )
 
 func (s *DockerSuite) TestVolumesApiList(c *check.C) {
-	testRequires(c, DaemonIsLinux)
-	dockerCmd(c, "run", "-d", "-v", "/foo", "busybox")
+	prefix, _ := getPrefixAndSlashFromDaemonPlatform()
+	dockerCmd(c, "run", "-v", prefix+"/foo", "busybox")
 
 	status, b, err := sockRequest("GET", "/volumes", nil)
 	c.Assert(err, checker.IsNil)
@@ -25,7 +25,6 @@ func (s *DockerSuite) TestVolumesApiList(c *check.C) {
 }
 
 func (s *DockerSuite) TestVolumesApiCreate(c *check.C) {
-	testRequires(c, DaemonIsLinux)
 	config := types.VolumeCreateRequest{
 		Name: "test",
 	}
@@ -37,12 +36,12 @@ func (s *DockerSuite) TestVolumesApiCreate(c *check.C) {
 	err = json.Unmarshal(b, &vol)
 	c.Assert(err, checker.IsNil)
 
-	c.Assert(path.Base(path.Dir(vol.Mountpoint)), checker.Equals, config.Name)
+	c.Assert(filepath.Base(filepath.Dir(vol.Mountpoint)), checker.Equals, config.Name)
 }
 
 func (s *DockerSuite) TestVolumesApiRemove(c *check.C) {
-	testRequires(c, DaemonIsLinux)
-	dockerCmd(c, "run", "-d", "-v", "/foo", "--name=test", "busybox")
+	prefix, _ := getPrefixAndSlashFromDaemonPlatform()
+	dockerCmd(c, "run", "-v", prefix+"/foo", "--name=test", "busybox")
 
 	status, b, err := sockRequest("GET", "/volumes", nil)
 	c.Assert(err, checker.IsNil)
@@ -65,7 +64,6 @@ func (s *DockerSuite) TestVolumesApiRemove(c *check.C) {
 }
 
 func (s *DockerSuite) TestVolumesApiInspect(c *check.C) {
-	testRequires(c, DaemonIsLinux)
 	config := types.VolumeCreateRequest{
 		Name: "test",
 	}
