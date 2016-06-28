@@ -3,6 +3,7 @@ package container
 import (
 	"fmt"
 	"os"
+	"time"
 
 	executorpkg "github.com/docker/docker/daemon/cluster/executor"
 	"github.com/docker/engine-api/types"
@@ -153,21 +154,46 @@ func (r *controller) Wait(pctx context.Context) error {
 	ctx, cancel := context.WithCancel(pctx)
 	defer cancel()
 
-	err := r.adapter.wait(ctx)
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-	if err != nil {
-		ee := &exitError{}
-		if err.Error() != "" {
-			ee.cause = err
+	errChan := make(chan error)
+
+	go func() {
+		err := r.adapter.wait(ctx)
+		select {
+		case <-r.closed:
+		case <-ctx.Done():
+		case errChan <- err:
 		}
-		if ec, ok := err.(exec.ExitCoder); ok {
-			ee.code = ec.ExitCode()
+	}()
+
+	go func() {
+		err := r.healthCheck(ctx)
+		select {
+		case <-r.closed:
+		case <-ctx.Done():
+		case errChan <- err:
 		}
-		return ee
+	}()
+
+	select {
+	case <-r.closed:
+		return r.err
+	case err := <-errChan:
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		if err != nil {
+			ee := &exitError{}
+			if err.Error() != "" {
+				ee.cause = err
+			}
+			if ec, ok := err.(exec.ExitCoder); ok {
+				ee.code = ec.ExitCode()
+			}
+			return ee
+		}
+		return nil
 	}
-	return nil
 }
 
 // Shutdown the container cleanly.
@@ -288,4 +314,35 @@ func (e *exitError) ExitCode() int {
 
 func (e *exitError) Cause() error {
 	return e.cause
+}
+
+// healthCheck blocks until unhealthy container is detected or ctx exits
+func (r *controller) healthCheck(ctx context.Context) error {
+	// polling health status every 3 seconds
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-r.closed:
+			return nil
+		case <-ticker.C:
+			ctnr, err := r.adapter.inspect(ctx)
+			if err != nil || ctnr.State.Health == nil {
+				continue
+			}
+			if ctnr.State.Health.Status != "unhealthy" {
+				continue
+			}
+
+			// if container is unhealthy, shutdown it and report error
+			if err = r.Shutdown(ctx); err != nil {
+				err = errors.Wrap(err, "unhealthy container shutdown failed")
+			} else {
+				err = ErrContainerUnhealthy
+			}
+			return err
+		}
+	}
 }
