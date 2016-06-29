@@ -15,12 +15,12 @@ const (
 	v6 = 6
 )
 
-func getAddressRange(pool string) (*AddressRange, error) {
+func getAddressRange(pool string, masterNw *net.IPNet) (*AddressRange, error) {
 	ip, nw, err := net.ParseCIDR(pool)
 	if err != nil {
 		return nil, ipamapi.ErrInvalidSubPool
 	}
-	lIP, e := types.GetHostPartIP(nw.IP, nw.Mask)
+	lIP, e := types.GetHostPartIP(nw.IP, masterNw.Mask)
 	if e != nil {
 		return nil, fmt.Errorf("failed to compute range's lowest ip address: %v", e)
 	}
@@ -28,7 +28,7 @@ func getAddressRange(pool string) (*AddressRange, error) {
 	if e != nil {
 		return nil, fmt.Errorf("failed to compute range's broadcast ip address: %v", e)
 	}
-	hIP, e := types.GetHostPartIP(bIP, nw.Mask)
+	hIP, e := types.GetHostPartIP(bIP, masterNw.Mask)
 	if e != nil {
 		return nil, fmt.Errorf("failed to compute range's highest ip address: %v", e)
 	}
@@ -62,7 +62,7 @@ func getAddressVersion(ip net.IP) ipVersion {
 }
 
 // Adds the ordinal IP to the current array
-// 192.168.0.0 + 53 => 192.168.53
+// 192.168.0.0 + 53 => 192.168.0.53
 func addIntToIP(array []byte, ordinal uint64) {
 	for i := len(array) - 1; i >= 0; i-- {
 		array[i] |= (byte)(ordinal & 0xff)

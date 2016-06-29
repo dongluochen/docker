@@ -1,13 +1,14 @@
 package volume
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
 	"github.com/Sirupsen/logrus"
-	derr "github.com/docker/docker/errors"
+	"github.com/docker/docker/pkg/system"
 )
 
 // read-write modes
@@ -45,7 +46,7 @@ const (
 	// RXReservedNames are reserved names not possible on Windows
 	RXReservedNames = `(con)|(prn)|(nul)|(aux)|(com[1-9])|(lpt[1-9])`
 
-	// RXSource is the combined possiblities for a source
+	// RXSource is the combined possibilities for a source
 	RXSource = `((?P<source>((` + RXHostDir + `)|(` + RXName + `))):)?`
 
 	// Source. Can be either a host directory, a name, or omitted:
@@ -68,17 +69,30 @@ const (
 	//    -  Variation on hostdir but can be a drive followed by colon as well
 	//    -  If a path, must be absolute. Can include spaces
 	//    -  Drive cannot be c: (explicitly checked in code, not RegEx)
-	//
-
-	// RXMode is the regex expression for the mode of the mount
-	RXMode = `(:(?P<mode>(?i)rw))?`
-	// Temporarily for TP4, disabling the use of ro as it's not supported yet
-	// in the platform. TODO Windows: `(:(?P<mode>(?i)ro|rw))?`
-	// mode (optional)
-	//    -  Hopefully self explanatory in comparison to above.
-	//    -  Colon is not in the capture group
-	//
 )
+
+// RXMode is the regex expression for the mode of the mount
+var RXMode string
+
+func init() {
+	osv := system.GetOSVersion()
+	// Read-only volumes supported from 14350 onwards (post Windows Server 2016 TP5)
+	// Mode (optional):
+	//    -  Hopefully self explanatory in comparison to above regex's.
+	//    -  Colon is not in the capture group
+	if osv.Build >= 14350 {
+		RXMode = `(:(?P<mode>(?i)ro|rw))?`
+	} else {
+		RXMode = `(:(?P<mode>(?i)rw))?`
+	}
+}
+
+// BackwardsCompatible decides whether this mount point can be
+// used in old versions of Docker or not.
+// Windows volumes are never backwards compatible.
+func (m *MountPoint) BackwardsCompatible() bool {
+	return false
+}
 
 // ParseMountSpec validates the configuration of mount information is valid.
 func ParseMountSpec(spec string, volumeDriver string) (*MountPoint, error) {
@@ -89,7 +103,7 @@ func ParseMountSpec(spec string, volumeDriver string) (*MountPoint, error) {
 
 	// Must have something back
 	if len(match) == 0 {
-		return nil, derr.ErrorCodeVolumeInvalid.WithArgs(spec)
+		return nil, errInvalidSpec(spec)
 	}
 
 	// Pull out the sub expressions from the named capture groups
@@ -109,7 +123,7 @@ func ParseMountSpec(spec string, volumeDriver string) (*MountPoint, error) {
 
 	// Volumes cannot include an explicitly supplied mode eg c:\path:rw
 	if mp.Source == "" && mp.Destination != "" && matchgroups["mode"] != "" {
-		return nil, derr.ErrorCodeVolumeInvalid.WithArgs(spec)
+		return nil, errInvalidSpec(spec)
 	}
 
 	// Note: No need to check if destination is absolute as it must be by
@@ -118,14 +132,14 @@ func ParseMountSpec(spec string, volumeDriver string) (*MountPoint, error) {
 	if filepath.VolumeName(mp.Destination) == mp.Destination {
 		// Ensure the destination path, if a drive letter, is not the c drive
 		if strings.ToLower(mp.Destination) == "c:" {
-			return nil, derr.ErrorCodeVolumeDestIsC.WithArgs(spec)
+			return nil, fmt.Errorf("Destination drive letter in '%s' cannot be c:", spec)
 		}
 	} else {
 		// So we know the destination is a path, not drive letter. Clean it up.
 		mp.Destination = filepath.Clean(mp.Destination)
 		// Ensure the destination path, if a path, is not the c root directory
 		if strings.ToLower(mp.Destination) == `c:\` {
-			return nil, derr.ErrorCodeVolumeDestIsCRoot.WithArgs(spec)
+			return nil, fmt.Errorf(`Destination path in '%s' cannot be c:\`, spec)
 		}
 	}
 
@@ -156,10 +170,10 @@ func ParseMountSpec(spec string, volumeDriver string) (*MountPoint, error) {
 		var fi os.FileInfo
 		var err error
 		if fi, err = os.Stat(mp.Source); err != nil {
-			return nil, derr.ErrorCodeVolumeSourceNotFound.WithArgs(mp.Source, err)
+			return nil, fmt.Errorf("Source directory '%s' could not be found: %s", mp.Source, err)
 		}
 		if !fi.IsDir() {
-			return nil, derr.ErrorCodeVolumeSourceNotDirectory.WithArgs(mp.Source)
+			return nil, fmt.Errorf("Source '%s' is not a directory", mp.Source)
 		}
 	}
 
@@ -175,7 +189,18 @@ func IsVolumeNameValid(name string) (bool, error) {
 	}
 	nameExp = regexp.MustCompile(`^` + RXReservedNames + `$`)
 	if nameExp.MatchString(name) {
-		return false, derr.ErrorCodeVolumeNameReservedWord.WithArgs(name)
+		return false, fmt.Errorf("Volume name %q cannot be a reserved word for Windows filenames", name)
 	}
 	return true, nil
+}
+
+// ValidMountMode will make sure the mount mode is valid.
+// returns if it's a valid mount mode or not.
+func ValidMountMode(mode string) bool {
+	return roModes[strings.ToLower(mode)] || rwModes[strings.ToLower(mode)]
+}
+
+// ReadWrite tells you if a mode string is a valid read-write mode or not.
+func ReadWrite(mode string) bool {
+	return rwModes[strings.ToLower(mode)]
 }

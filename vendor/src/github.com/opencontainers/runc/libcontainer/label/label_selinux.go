@@ -94,6 +94,11 @@ func GetProcessLabel() (string, error) {
 	return selinux.Getexeccon()
 }
 
+// GetFileLabel returns the label for specified path
+func GetFileLabel(path string) (string, error) {
+	return selinux.Getfilecon(path)
+}
+
 // SetFileLabel modifies the "path" label to the specified file label
 func SetFileLabel(path string, fileLabel string) error {
 	if selinux.SelinuxEnabled() && fileLabel != "" {
@@ -102,7 +107,7 @@ func SetFileLabel(path string, fileLabel string) error {
 	return nil
 }
 
-// Tell the kernel the label for all files to be created
+// SetFileCreateLabel tells the kernel the label for all files to be created
 func SetFileCreateLabel(fileLabel string) error {
 	if selinux.SelinuxEnabled() {
 		return selinux.Setfscreatecon(fileLabel)
@@ -110,7 +115,7 @@ func SetFileCreateLabel(fileLabel string) error {
 	return nil
 }
 
-// Change the label of path to the filelabel string.
+// Relabel changes the label of path to the filelabel string.
 // It changes the MCS label to s0 if shared is true.
 // This will allow all containers to share the content.
 func Relabel(path string, fileLabel string, shared bool) error {
@@ -179,6 +184,11 @@ func Validate(label string) error {
 		return ErrIncompatibleLabel
 	}
 	return nil
+}
+
+// RelabelNeeded checks whether the user requested a relabel
+func RelabelNeeded(label string) bool {
+	return strings.Contains(label, "z") || strings.Contains(label, "Z")
 }
 
 // IsShared checks that the label includes a "shared" mark

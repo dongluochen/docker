@@ -1,12 +1,14 @@
 package etchosts
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
 	"regexp"
+	"strings"
 	"sync"
 )
 
@@ -77,10 +79,17 @@ func Build(path, IP, hostname, domainname string, extraContent []Record) error {
 		//set main record
 		var mainRec Record
 		mainRec.IP = IP
+		// User might have provided a FQDN in hostname or split it across hostname
+		// and domainname.  We want the FQDN and the bare hostname.
+		fqdn := hostname
 		if domainname != "" {
-			mainRec.Hosts = fmt.Sprintf("%s.%s %s", hostname, domainname, hostname)
+			fqdn = fmt.Sprintf("%s.%s", fqdn, domainname)
+		}
+		parts := strings.SplitN(fqdn, ".", 2)
+		if len(parts) == 2 {
+			mainRec.Hosts = fmt.Sprintf("%s %s", fqdn, parts[0])
 		} else {
-			mainRec.Hosts = hostname
+			mainRec.Hosts = fqdn
 		}
 		if _, err := mainRec.WriteTo(content); err != nil {
 			return err
@@ -138,19 +147,40 @@ func Delete(path string, recs []Record) error {
 	if len(recs) == 0 {
 		return nil
 	}
-
-	old, err := ioutil.ReadFile(path)
+	old, err := os.Open(path)
 	if err != nil {
 		return err
 	}
 
-	regexpStr := fmt.Sprintf("\\S*\\t%s\\n", regexp.QuoteMeta(recs[0].Hosts))
-	for _, r := range recs[1:] {
-		regexpStr = regexpStr + "|" + fmt.Sprintf("\\S*\\t%s\\n", regexp.QuoteMeta(r.Hosts))
-	}
+	var buf bytes.Buffer
 
-	var re = regexp.MustCompile(regexpStr)
-	return ioutil.WriteFile(path, re.ReplaceAll(old, []byte("")), 0644)
+	s := bufio.NewScanner(old)
+	eol := []byte{'\n'}
+loop:
+	for s.Scan() {
+		b := s.Bytes()
+		if len(b) == 0 {
+			continue
+		}
+
+		if b[0] == '#' {
+			buf.Write(b)
+			buf.Write(eol)
+			continue
+		}
+		for _, r := range recs {
+			if bytes.HasSuffix(b, []byte("\t"+r.Hosts)) {
+				continue loop
+			}
+		}
+		buf.Write(b)
+		buf.Write(eol)
+	}
+	old.Close()
+	if err := s.Err(); err != nil {
+		return err
+	}
+	return ioutil.WriteFile(path, buf.Bytes(), 0644)
 }
 
 // Update all IP addresses where hostname matches.
@@ -164,6 +194,6 @@ func Update(path, IP, hostname string) error {
 	if err != nil {
 		return err
 	}
-	var re = regexp.MustCompile(fmt.Sprintf("(\\S*)(\\t%s)", regexp.QuoteMeta(hostname)))
-	return ioutil.WriteFile(path, re.ReplaceAll(old, []byte(IP+"$2")), 0644)
+	var re = regexp.MustCompile(fmt.Sprintf("(\\S*)(\\t%s)(\\s|\\.)", regexp.QuoteMeta(hostname)))
+	return ioutil.WriteFile(path, re.ReplaceAll(old, []byte(IP+"$2"+"$3")), 0644)
 }
