@@ -74,6 +74,7 @@ type endpoint struct {
 	ingressPorts      []*PortConfig
 	dbIndex           uint64
 	dbExists          bool
+	serviceEnabled    bool
 	sync.Mutex
 }
 
@@ -498,10 +499,6 @@ func (ep *endpoint) sbJoin(sb *sandbox, options ...EndpointOption) error {
 
 	if err = sb.populateNetworkResources(ep); err != nil {
 		return err
-	}
-
-	if e := ep.addToCluster(); e != nil {
-		log.Errorf("Could not update state for endpoint %s into cluster: %v", ep.Name(), e)
 	}
 
 	if sb.needDefaultGW() && sb.getEndpointInGWNetwork() == nil {
