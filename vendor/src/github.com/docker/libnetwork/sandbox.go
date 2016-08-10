@@ -50,6 +50,12 @@ type Sandbox interface {
 	ResolveService(name string) ([]*net.SRV, []net.IP, error)
 	// Endpoints returns all the endpoints connected to the sandbox
 	Endpoints() []Endpoint
+	// ActivateServiceBinding set service related binding to active state,
+	// including load balancer, DNS records
+	ActivateServiceBinding() error
+	// DeactivateServiceBinding set service related binding to inactive state,
+	// including load balancer, DNS records
+	DeactivateServiceBinding() error
 }
 
 // SandboxOption is an option setter function type used to pass various options to
@@ -338,6 +344,27 @@ func (sb *sandbox) Endpoints() []Endpoint {
 		endpoints[i] = ep
 	}
 	return endpoints
+}
+
+func (sb *sandbox) ActivateServiceBinding() error {
+	endpoints := sb.getConnectedEndpoints()
+	for _, ep := range endpoints {
+		//if err := ep.AddServiceBinding(); err != nil {
+		if err := ep.addToCluster(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (sb *sandbox) DeactivateServiceBinding() error {
+	endpoints := sb.getConnectedEndpoints()
+	for _, ep := range endpoints {
+		if err := ep.deleteFromCluster(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (sb *sandbox) getConnectedEndpoints() []*endpoint {

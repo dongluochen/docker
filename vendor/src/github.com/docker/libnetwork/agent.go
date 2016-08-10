@@ -435,11 +435,64 @@ func (n *network) leaveCluster() error {
 	return c.agent.networkDB.LeaveNetwork(n.ID())
 }
 
-func (ep *endpoint) addToCluster() error {
+func (ep *endpoint) AddServiceBinding() error {
+	if ep.isAnonymous() || ep.Iface().Address() == nil {
+		return nil
+	}
+
 	n := ep.getNetwork()
 	if !n.isClusterEligible() {
 		return nil
 	}
+
+	c := n.getController()
+	var ingressPorts []*PortConfig
+	if ep.svcID != "" {
+		// Gossip ingress ports only in ingress network.
+		if n.ingress {
+			ingressPorts = ep.ingressPorts
+		}
+
+		if err := c.addServiceBinding(ep.svcName, ep.svcID, n.ID(), ep.ID(), ep.virtualIP, ingressPorts, ep.svcAliases, ep.Iface().Address().IP); err != nil {
+			return err
+		}
+		logrus.Warnf("addServiceBinding from AddServiceBining service %s, vip %s", ep.svcName, ep.virtualIP.String())
+	}
+	return nil
+}
+
+func (ep *endpoint) RmServiceBinding() error {
+	if ep.isAnonymous() || ep.Iface().Address() == nil {
+		return nil
+	}
+
+	n := ep.getNetwork()
+	if !n.isClusterEligible() {
+		return nil
+	}
+
+	c := n.getController()
+	var ingressPorts []*PortConfig
+	if ep.svcID != "" {
+		// Gossip ingress ports only in ingress network.
+		if n.ingress {
+			ingressPorts = ep.ingressPorts
+		}
+
+		if err := c.rmServiceBinding(ep.svcName, ep.svcID, n.ID(), ep.ID(), ep.virtualIP, ingressPorts, ep.svcAliases, ep.Iface().Address().IP); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (ep *endpoint) addToCluster() error {
+	logrus.Errorf("addToCluster: starting serviceName %s, vip %s", ep.svcName, ep.virtualIP.String())
+	n := ep.getNetwork()
+	if !n.isClusterEligible() {
+		return nil
+	}
+	logrus.Errorf("addToCluster: cluster eligible service %s, vip %s", ep.svcName, ep.virtualIP.String())
 
 	c := n.getController()
 	if !ep.isAnonymous() && ep.Iface().Address() != nil {
@@ -453,6 +506,7 @@ func (ep *endpoint) addToCluster() error {
 			if err := c.addServiceBinding(ep.svcName, ep.svcID, n.ID(), ep.ID(), ep.virtualIP, ingressPorts, ep.svcAliases, ep.Iface().Address().IP); err != nil {
 				return err
 			}
+			logrus.Errorf("addToCluster: addServiceBinding service %s, vip %s", ep.svcName, ep.virtualIP.String())
 		}
 
 		buf, err := proto.Marshal(&EndpointRecord{
@@ -472,6 +526,7 @@ func (ep *endpoint) addToCluster() error {
 		if err := c.agent.networkDB.CreateEntry("endpoint_table", n.ID(), ep.ID(), buf); err != nil {
 			return err
 		}
+		logrus.Errorf("addToCluster: CreateEntry service %s, vip %s", ep.svcName, ep.virtualIP.String())
 	}
 
 	for _, te := range ep.joinInfo.driverTableEntries {
@@ -665,15 +720,16 @@ func (c *controller) handleEpTableEvent(ev events.Event) {
 				logrus.Errorf("Failed adding service binding for value %s: %v", value, err)
 				return
 			}
+			logrus.Warnf("addServiceBinding from handleEpTableEvent service %s, vip %s", svcName, vip.String())
 		}
-
 		n.addSvcRecords(name, ip, nil, true)
 	} else {
 		if svcID != "" {
 			if err := c.rmServiceBinding(svcName, svcID, nid, eid, vip, ingressPorts, aliases, ip); err != nil {
-				logrus.Errorf("Failed adding service binding for value %s: %v", value, err)
+				logrus.Errorf("Failed removing service binding for value %s: %v", value, err)
 				return
 			}
+			logrus.Warnf("rmServiceBinding from handleEpTableEvent service %s, vip %s", svcName, vip.String())
 		}
 
 		n.deleteSvcRecords(name, ip, nil, true)

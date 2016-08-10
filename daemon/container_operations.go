@@ -766,3 +766,23 @@ func (daemon *Daemon) releaseNetwork(container *container.Container) {
 		daemon.LogNetworkEventWithAttributes(nw, "disconnect", attributes)
 	}
 }
+
+// ActivateContainerServiceBinding puts this container into load balancer active rotation, and DNS response
+func (daemon *Daemon) ActivateContainerServiceBinding(containerName string) error {
+	container, err := daemon.GetContainer(containerName)
+	if err != nil {
+		return err
+	}
+	sb := daemon.getNetworkSandbox(container)
+	return sb.ActivateServiceBinding()
+}
+
+// DeactivateContainerServiceBinding remove this container fromload balancer active rotation, and DNS response
+func (daemon *Daemon) DeactivateContainerServiceBinding(containerName string) error {
+	container, err := daemon.GetContainer(containerName)
+	if err != nil {
+		return err
+	}
+	sb := daemon.getNetworkSandbox(container)
+	return sb.DeactivateServiceBinding()
+}

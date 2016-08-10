@@ -116,6 +116,16 @@ func (c *containerAdapter) removeNetworks(ctx context.Context) error {
 	return nil
 }
 
+// add this container to service binding, load balancer, and DNS
+func (c *containerAdapter) activateServiceBinding(ctx context.Context, backend executorpkg.Backend) error {
+	return backend.ActivateContainerServiceBinding(c.container.name())
+}
+
+// remove this container to service binding, load balancer, and DNS
+func (c *containerAdapter) deactivateServiceBinding(ctx context.Context, backend executorpkg.Backend) error {
+	return backend.DeactivateContainerServiceBinding(c.container.name())
+}
+
 func (c *containerAdapter) create(ctx context.Context, backend executorpkg.Backend) error {
 	var cr types.ContainerCreateResponse
 	var err error
@@ -185,18 +195,18 @@ func (c *containerAdapter) events(ctx context.Context) <-chan events.Message {
 		for {
 			select {
 			case ev := <-l:
+				log.G(ctx).Debugf("events: receives event message: %q", ev)
 				jev, ok := ev.(events.Message)
 				if !ok {
 					log.G(ctx).Warnf("unexpected event message: %q", ev)
 					continue
 				}
+				log.G(ctx).Debugf("events: going to push event to eventsq: %q", jev)
 				select {
 				case eventsq <- jev:
-				case <-ctx.Done():
-					return
+					log.G(ctx).Debugf("events: pushed event to eventsq: %q", jev)
 				}
-			case <-ctx.Done():
-				return
+				// TODO(dongluochen): need a done channel
 			}
 		}
 	}()

@@ -141,6 +141,11 @@ func (r *controller) Prepare(ctx context.Context) error {
 		return err
 	}
 
+	// start event handling
+	if err := r.handleEvents(ctx); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -183,58 +188,7 @@ func (r *controller) Start(ctx context.Context) error {
 		break
 	}
 
-	// no health check
-	if ctnr.Config == nil || ctnr.Config.Healthcheck == nil {
-		return nil
-	}
-
-	healthCmd := ctnr.Config.Healthcheck.Test
-
-	if len(healthCmd) == 0 || healthCmd[0] == "NONE" {
-		return nil
-	}
-
-	// wait for container to be healthy
-	eventq := r.adapter.events(ctx)
-
-	var healthErr error
-	for {
-		select {
-		case event := <-eventq:
-			if !r.matchevent(event) {
-				continue
-			}
-
-			switch event.Action {
-			case "die": // exit on terminal events
-				ctnr, err := r.adapter.inspect(ctx)
-				if err != nil {
-					return errors.Wrap(err, "die event received")
-				} else if ctnr.State.ExitCode != 0 {
-					return &exitError{code: ctnr.State.ExitCode, cause: healthErr}
-				}
-
-				return nil
-			case "destroy":
-				// If we get here, something has gone wrong but we want to exit
-				// and report anyways.
-				return ErrContainerDestroyed
-			case "health_status: unhealthy":
-				// in this case, we stop the container and report unhealthy status
-				if err := r.Shutdown(ctx); err != nil {
-					return errors.Wrap(err, "unhealthy container shutdown failed")
-				}
-				// set health check error, and wait for container to fully exit ("die" event)
-				healthErr = ErrContainerUnhealthy
-			case "health_status: healthy":
-				return nil
-			}
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-r.closed:
-			return r.err
-		}
-	}
+	return nil
 }
 
 // Wait on the container to exit.
@@ -246,18 +200,6 @@ func (r *controller) Wait(pctx context.Context) error {
 	ctx, cancel := context.WithCancel(pctx)
 	defer cancel()
 
-	healthErr := make(chan error, 1)
-	go func() {
-		ectx, cancel := context.WithCancel(ctx) // cancel event context on first event
-		defer cancel()
-		if err := r.checkHealth(ectx); err == ErrContainerUnhealthy {
-			healthErr <- ErrContainerUnhealthy
-			if err := r.Shutdown(ectx); err != nil {
-				log.G(ectx).WithError(err).Debug("shutdown failed on unhealthy")
-			}
-		}
-	}()
-
 	err := r.adapter.wait(ctx)
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -265,16 +207,11 @@ func (r *controller) Wait(pctx context.Context) error {
 
 	if err != nil {
 		ee := &exitError{}
+		if err.Error() != "" {
+			ee.cause = err
+		}
 		if ec, ok := err.(exec.ExitCoder); ok {
 			ee.code = ec.ExitCode()
-		}
-		select {
-		case e := <-healthErr:
-			ee.cause = e
-		default:
-			if err.Error() != "" {
-				ee.cause = err
-			}
 		}
 		return ee
 	}
@@ -431,6 +368,71 @@ func (e *exitError) ExitCode() int {
 
 func (e *exitError) Cause() error {
 	return e.cause
+}
+
+// handleEvents processes events related to this container
+func (r *controller) handleEvents(ctx context.Context) error {
+	log.G(ctx).Debugf("handleEvents: starting for container %s", r.adapter.container.name())
+	// check if healthcheck is enabled
+	ctnr, err := r.adapter.inspect(ctx)
+	if err != nil {
+		return err
+	}
+	healthcheckEnabled := false
+	if ctnr.Config != nil && ctnr.Config.Healthcheck != nil {
+		healthCmd := ctnr.Config.Healthcheck.Test
+		if len(healthCmd) > 0 && healthCmd[0] != "NONE" {
+			healthcheckEnabled = true
+		}
+	}
+
+	// TODO(dongluochen): examine if context needs to be changed here
+	eventq := r.adapter.events(ctx)
+
+	// event handling will run until container destroyed
+	go func() {
+		log.G(ctx).Debugf("handleEvents loop: for container %s, healthcheck %v", r.adapter.container.name(), healthcheckEnabled)
+		for {
+			select {
+			//	case <-ctx.Done():
+			// return
+			case <-r.closed:
+				return
+			case event := <-eventq:
+				log.G(ctx).Debugf("handleEvents: receives event: Actor name %s, %s", event.Actor.Attributes["name"], event.Action)
+				// only check events related to this container for now
+				// TODO(dongluochen): check if network events should be handled
+				if !r.matchevent(event) {
+					log.G(ctx).Debugf("handleEvents: not for container %s", r.adapter.container.name())
+					continue
+				}
+				switch event.Action {
+				case "start":
+					if healthcheckEnabled {
+						continue
+					}
+					// add this container to loadbalancer
+					r.adapter.activateServiceBinding(ctx, r.adapter.backend)
+					log.G(ctx).Debugf("handleEvents: activateServiceBinding for container %s", r.adapter.container.name())
+				case "die":
+					//
+				case "destroy":
+					//
+				case "health_status: unhealthy":
+					// remove this container from loadbalancer
+					r.adapter.deactivateServiceBinding(ctx, r.adapter.backend)
+					log.G(ctx).Debugf("handleEvents: deactivateServiceBinding for container %s", r.adapter.container.name())
+					// shutdown the container
+				case "health_status: healthy":
+					// add this container to loadbalancer
+					r.adapter.activateServiceBinding(ctx, r.adapter.backend)
+					log.G(ctx).Debugf("handleEvents: activateServiceBinding for container %s", r.adapter.container.name())
+				}
+			}
+		}
+	}()
+
+	return nil
 }
 
 // checkHealth blocks until unhealthy container is detected or ctx exits
