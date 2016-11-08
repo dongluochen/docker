@@ -283,6 +283,11 @@ func (daemon *Daemon) createNetwork(create types.NetworkCreateRequest, id string
 	if create.Internal {
 		nwOptions = append(nwOptions, libnetwork.NetworkOptionInternalNetwork())
 	}
+
+	if create.Attachable {
+		nwOptions = append(nwOptions, libnetwork.NetworkOptionAttachable(true))
+	}
+
 	if agent {
 		nwOptions = append(nwOptions, libnetwork.NetworkOptionDynamic())
 		nwOptions = append(nwOptions, libnetwork.NetworkOptionPersist(false))

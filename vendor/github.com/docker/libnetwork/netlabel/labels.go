@@ -50,6 +50,9 @@ const (
 
 	// Internal constant represents that the network is internal which disables default gateway service
 	Internal = Prefix + ".internal"
+
+	// Attachable represents represents if the global scope is manually attachable by regular containers from workers in swarm mode
+	Attachable = Prefix + ".attachable"
 )
 
 var (
