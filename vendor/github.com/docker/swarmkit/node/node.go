@@ -330,6 +330,14 @@ func (n *Node) Stop(ctx context.Context) error {
 	default:
 		return errNodeNotStarted
 	}
+	// ask agent to clean up assignments
+	n.Lock()
+	if n.agent != nil {
+		if err := n.agent.Leave(ctx); err != nil {
+			log.G(ctx).WithError(err).Error("agent failed to clean up assignments")
+		}
+	}
+	n.Unlock()
 
 	n.stopOnce.Do(func() {
 		close(n.stopped)

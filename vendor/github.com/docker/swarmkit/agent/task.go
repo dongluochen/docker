@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"sync"
 	"time"
 
 	"github.com/docker/swarmkit/agent/exec"
@@ -19,8 +20,10 @@ type taskManager struct {
 
 	updateq chan *api.Task
 
-	shutdown chan struct{}
-	closed   chan struct{}
+	shutdown     chan struct{}
+	shutdownOnce sync.Once
+	closed       chan struct{}
+	closeOnce    sync.Once
 }
 
 func newTaskManager(ctx context.Context, task *api.Task, ctlr exec.Controller, reporter StatusReporter) *taskManager {
@@ -48,20 +51,15 @@ func (tm *taskManager) Update(ctx context.Context, task *api.Task) error {
 	}
 }
 
-// Close shuts down the task manager, blocking until it is stopped.
+// Close shuts down the task manager, blocking until it is closed.
 func (tm *taskManager) Close() error {
-	select {
-	case <-tm.closed:
-		return nil
-	case <-tm.shutdown:
-	default:
+	tm.shutdownOnce.Do(func() {
 		close(tm.shutdown)
-	}
+	})
 
-	select {
-	case <-tm.closed:
-		return nil
-	}
+	<-tm.closed
+
+	return nil
 }
 
 func (tm *taskManager) Logs(ctx context.Context, options api.LogSubscriptionOptions, publisher exec.LogPublisher) {
@@ -106,7 +104,8 @@ func (tm *taskManager) run(ctx context.Context) {
 			// always check for shutdown before running.
 			select {
 			case <-tm.shutdown:
-				continue // ignore run request and handle shutdown
+				shutdown = tm.shutdown // a little questionable
+				continue               // ignore run request and handle shutdown
 			case <-tm.closed:
 				continue
 			default:
@@ -245,10 +244,15 @@ func (tm *taskManager) run(ctx context.Context) {
 			statusq = nil
 			errs = nil
 			shutdown = nil
-			close(tm.closed)
+			tm.closeOnce.Do(func() {
+				close(tm.closed)
+			})
 		case <-tm.closed:
 			return
 		case <-ctx.Done():
+			tm.closeOnce.Do(func() {
+				close(tm.closed)
+			})
 			return
 		}
 	}

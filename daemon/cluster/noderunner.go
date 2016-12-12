@@ -196,7 +196,7 @@ func (n *nodeRunner) Stop() error {
 		return nil
 	}
 	n.stopping = true
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 	defer cancel()
 	if err := n.swarmNode.Stop(ctx); err != nil && !strings.Contains(err.Error(), "context canceled") {
 		n.mu.Unlock()
