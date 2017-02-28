@@ -349,6 +349,14 @@ func updateService(flags *pflag.FlagSet, spec *swarm.ServiceSpec) error {
 		cspec.ReadOnly = readOnly
 	}
 
+	if flags.Changed(flagPrivileged) {
+		privileged, err := flags.GetBool(flagPrivileged)
+		if err != nil {
+			return err
+		}
+		cspec.Privileged = privileged
+	}
+
 	return nil
 }
 

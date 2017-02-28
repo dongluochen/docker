@@ -35,6 +35,7 @@ type ContainerSpec struct {
 	TTY             bool                    `json:",omitempty"`
 	OpenStdin       bool                    `json:",omitempty"`
 	ReadOnly        bool                    `json:",omitempty"`
+	Privileged      bool                    `json:",omitempty"`
 	Mounts          []mount.Mount           `json:",omitempty"`
 	StopGracePeriod *time.Duration          `json:",omitempty"`
 	Healthcheck     *container.HealthConfig `json:",omitempty"`
