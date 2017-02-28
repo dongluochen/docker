@@ -340,6 +340,7 @@ func (c *containerConfig) hostConfig() *enginecontainer.HostConfig {
 		PortBindings:   c.portBindings(),
 		Mounts:         c.mounts(),
 		ReadonlyRootfs: c.spec().ReadOnly,
+		Privileged:     c.spec().Privileged,
 	}
 
 	if c.spec().DNSConfig != nil {
