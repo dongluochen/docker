@@ -17,6 +17,7 @@ import (
 	"github.com/docker/docker/api/types/backend"
 	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/daemon/cluster/convert"
 	executorpkg "github.com/docker/docker/daemon/cluster/executor"
 	"github.com/docker/libnetwork"
@@ -24,7 +25,7 @@ import (
 	"github.com/docker/swarmkit/api"
 	"github.com/docker/swarmkit/log"
 	gogotypes "github.com/gogo/protobuf/types"
-	"github.com/opencontainers/go-digest"
+	digest "github.com/opencontainers/go-digest"
 	"golang.org/x/net/context"
 	"golang.org/x/time/rate"
 )
@@ -212,16 +213,53 @@ func (c *containerAdapter) waitForDetach(ctx context.Context) error {
 	return c.backend.WaitForDetachment(ctx, networkName, networkID, c.container.taskID(), c.container.id())
 }
 
+func (c *containerAdapter) nodeLocalNetworks() []string {
+	ln := []string{}
+	selector, ok := c.container.task.ServiceAnnotations.Labels["com.docker.swarm.network.selector"]
+	if !ok {
+		return ln
+	}
+
+	sel := strings.Split(selector, ",")
+	epConfig := make(map[string]*network.EndpointSettings)
+	for _, s := range sel {
+		for _, n := range c.backend.GetNetworks() {
+			if epConfig[n.Name()] != nil {
+				continue
+			}
+			_, ok := n.Info().Labels()[s]
+			if n.Info().Scope() == "local" && ok {
+				epConfig[n.Name()] = &network.EndpointSettings{}
+				ln = append(ln, n.Name())
+			}
+		}
+	}
+	return ln
+}
+
 func (c *containerAdapter) create(ctx context.Context) error {
 	var cr containertypes.ContainerCreateCreatedBody
 	var err error
 
+	// Use only the first network in container create
+	cnc := c.container.createNetworkingConfig()
+	localNetworks := c.nodeLocalNetworks()
+	connectIndex := 0
+	hostConfig := c.container.hostConfig()
+	if len(cnc.EndpointsConfig) == 0 && len(localNetworks) > 0 {
+		epConfig := make(map[string]*network.EndpointSettings)
+		epConfig[localNetworks[0]] = &network.EndpointSettings{}
+		cnc = &network.NetworkingConfig{EndpointsConfig: epConfig}
+		connectIndex = 1
+		hostConfig.NetworkMode = containertypes.NetworkMode(localNetworks[0])
+	}
+
 	if cr, err = c.backend.CreateManagedContainer(types.ContainerCreateConfig{
 		Name:       c.container.name(),
 		Config:     c.container.config(),
-		HostConfig: c.container.hostConfig(),
+		HostConfig: hostConfig,
 		// Use the first network in container create
-		NetworkingConfig: c.container.createNetworkingConfig(),
+		NetworkingConfig: cnc,
 	}); err != nil {
 		return err
 	}
@@ -232,6 +270,15 @@ func (c *containerAdapter) create(ctx context.Context) error {
 
 	if nc != nil {
 		for n, ep := range nc.EndpointsConfig {
+			if err := c.backend.ConnectContainerToNetwork(cr.ID, n, ep); err != nil {
+				return err
+			}
+		}
+	}
+
+	if len(localNetworks) > connectIndex {
+		for _, n := range localNetworks[connectIndex:] {
+			ep := &network.EndpointSettings{}
 			if err := c.backend.ConnectContainerToNetwork(cr.ID, n, ep); err != nil {
 				return err
 			}
