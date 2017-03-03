@@ -222,17 +222,18 @@ func (c *containerAdapter) nodeLocalNetworks() []string {
 
 	sel := strings.Split(selector, ",")
 	epConfig := make(map[string]*network.EndpointSettings)
+	// only add host network here
 	for _, s := range sel {
+		if s != "host" {
+			continue
+		}
 		for _, n := range c.backend.GetNetworks() {
-			if epConfig[n.Name()] != nil {
-				continue
-			}
-			_, ok := n.Info().Labels()[s]
-			if n.Info().Scope() == "local" && ok {
+			if n.Name() == "host" {
 				epConfig[n.Name()] = &network.EndpointSettings{}
 				ln = append(ln, n.Name())
 			}
 		}
+		break
 	}
 	return ln
 }
